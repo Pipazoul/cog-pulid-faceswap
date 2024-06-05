@@ -10,6 +10,14 @@ import subprocess
 import numpy as np
 from PIL import Image
 from typing import Any, List, Optional, Tuple
+import insightface
+import onnxruntime
+from insightface.app import FaceAnalysis
+
+import gfpgan
+import cv2
+import tempfile
+import time
 
 mimetypes.add_type("image/webp", ".webp")
 
@@ -110,7 +118,6 @@ def download_weights(url: str, dest: str) -> None:
         raise
     print("[+] Download completed in: ", time.time() - start, "seconds")
 
-
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
@@ -155,6 +162,43 @@ class Predictor(BasePredictor):
 
         self.black_image_count = 0
         self.threshold = 2
+
+        self.face_swapper = insightface.model_zoo.get_model('cache/inswapper_128.onnx', providers=onnxruntime.get_available_providers())
+        self.face_enhancer = gfpgan.GFPGANer(model_path='cache/GFPGANv1.4.pth', upscale=1)
+        self.face_analyser = FaceAnalysis(name='buffalo_l')
+        self.face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+
+
+    def get_face(self,img_data):
+        analysed = self.face_analyser.get(img_data)
+        try:
+            largest = max(analysed, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+            return largest
+        except:
+            print("No face found") 
+            return None
+        
+
+    def predict_face_swap(self,target_image_path: Path, swap_image_path: Path) -> Path:
+        """Run a single prediction to swap faces between two images."""
+        try:
+            frame = cv2.imread(str(target_image_path))
+            face = self.get_face(frame)
+            source_face = self.get_face(cv2.imread(str(swap_image_path)))
+            try:
+                print(frame.shape, face.shape, source_face.shape)
+            except:
+                print("Printing shapes failed.")
+            
+            result = self.face_swapper.get(frame, face, source_face, paste_back=True)
+            _, _, result = self.face_enhancer.enhance(result, paste_back=True)
+            out_path = Path(tempfile.mkdtemp()) / f"{int(time.time())}.jpg"
+            cv2.imwrite(str(out_path), result)
+            return out_path
+        except Exception as e:
+            print(f"Error: {e}")
+            return None
+
 
     def predict(
         self,
@@ -250,7 +294,7 @@ class Predictor(BasePredictor):
                 output, _ = run(*inps)
                 self.black_image_count = 0  # Reset the counter after re-setup
 
-        # Save images and collect their paths
+       # Save images and collect their paths
         saved_paths = []
         for idx, img_array in enumerate(output):
             img = Image.fromarray(img_array)
@@ -271,4 +315,16 @@ class Predictor(BasePredictor):
             img.save(output_path, **save_params)
             saved_paths.append(Path(output_path))
 
-        return saved_paths
+        face_swap_paths = []
+        try:
+            for saved_path in saved_paths:
+                face_swap_path = self.predict_face_swap(saved_path, main_face_image)
+                # open the image
+                img = Image.open(face_swap_path)
+                # save the image as a webp
+                img.save(face_swap_path.with_suffix(".webp"), "WEBP", quality=80)
+                face_swap_paths.append(face_swap_path.with_suffix(".webp"))
+            return face_swap_paths
+        except Exception as e:
+            return saved_paths
+            

@@ -7,9 +7,15 @@ build:
 
   # a list of ubuntu apt packages to install
   system_packages:
-    - "libgl1-mesa-glx"
-    - "libglib2.0-0"
+    - libgl1-mesa-glx
+    - libglib2.0-0
 
+    - cmake
+    - zip
+    - ffmpeg
+    - libsm6 
+    - libxext6
+    - gcc-10
   # python version in the form '3.11' or '3.11.4'
   python_version: "3.10.14"
 
@@ -33,12 +39,24 @@ build:
     - "apex==0.9.10.dev0"
     # https://github.com/replicate/cog/issues/1623
     - "albumentations==1.4.3"
-    - "pydantic==1.10.11"
+    #- "pydantic==1.10.11"
+
+    - "insightface"
+    - "onnxruntime-gpu"
+    - "pydantic==1.10.13"
+    - "tensorrt"
 
   # commands run after the environment is setup
   run:
     - "sed -i '8s/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' /root/.pyenv/versions/3.10.14/lib/python3.10/site-packages/basicsr/data/degradations.py"
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.1/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
+
+    #- "pip install torchvision"
+    #- "pip install basicsr"
+    - "pip install gfpgan"
+    - "mkdir -p /root/.insightface/models/buffalo_l/"
+    - "wget https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
+    - "unzip buffalo_l.zip -d /root/.insightface/models/buffalo_l"
 
 # predict.py defines how predictions are run on your model
 predict: "predict.py:Predictor"
